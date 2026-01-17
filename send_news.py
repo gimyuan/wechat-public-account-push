@@ -3,17 +3,20 @@ import json
 from datetime import datetime
 import os
 
-# 1. 从 GitHub Secrets 读取配置参数（个人号专用）
+# 1. 从 GitHub Secrets 读取配置参数（支持多 OpenID）
 APP_ID = os.getenv("WECHAT_APP_ID")
 APP_SECRET = os.getenv("WECHAT_APP_SECRET")
-FAN_OPENID = os.getenv("WECHAT_FAN_OPENID")  # 新增：粉丝 OpenID
+FAN_OPENIDS_STR = os.getenv("WECHAT_FAN_OPENID")  # 读取逗号分隔的 OpenID 字符串
+
+# 拆分多 OpenID 为列表（处理空值、去重）
+FAN_OPENID_LIST = [openid.strip() for openid in FAN_OPENIDS_STR.split(",") if openid.strip()] if FAN_OPENIDS_STR else []
 
 # 2. 从你的接口获取 News 数据
 def get_news_data():
     try:
         api_url = "https://world.20030525.xyz/v2/60s"
         response = requests.get(api_url, timeout=30)
-        response.raise_for_status()  # 抛出请求错误（4xx/5xx）
+        response.raise_for_status()
         data = response.json()
         news_list = data["data"]["news"]
         return news_list
@@ -38,40 +41,42 @@ def get_access_token():
         print(f"❌ 获取 Access Token 异常：{str(e)}")
         return None
 
-# 4. 纯文字消息推送（个人订阅号可用，客服消息接口）
+# 4. 纯文字消息推送（支持多 OpenID 循环发送，个人订阅号可用）
 def send_text_news_to_wechat(access_token, news_list):
-    if not FAN_OPENID:
-        print("❌ 未配置粉丝 OpenID，无法发送消息")
+    if not FAN_OPENID_LIST:
+        print("❌ 未配置有效粉丝 OpenID，无法发送消息")
         return
 
-    try:
-        # 文字内容排版（清晰易读）
-        news_title = f"今日热点 News {datetime.now().strftime('%Y-%m-%d')}\n\n"
-        news_content = ""
-        for idx, news in enumerate(news_list, 1):
-            news_content += f"{idx}. {news}\n"
-        final_content = news_title + news_content + "\n✨ 自动推送 by GitHub Actions"
+    # 文字内容排版（清晰易读）
+    news_title = f"今日热点 News {datetime.now().strftime('%Y-%m-%d')}\n\n"
+    news_content = ""
+    for idx, news in enumerate(news_list, 1):
+        news_content += f"{idx}. {news}\n"
+    final_content = news_title + news_content + "\n✨ 自动推送 by GitHub Actions"
 
-        # 个人号可用的客服消息接口（仅能给关注的粉丝发送）
-        send_url = f"https://api.weixin.qq.com/cgi-bin/message/custom/send?access_token={access_token}"
-        send_data = {
-            "touser": FAN_OPENID,  # 接收消息的粉丝 OpenID
-            "msgtype": "text",     # 消息类型：纯文字
-            "text": {
-                "content": final_content  # 排版后的新闻内容
+    # 循环给每个 OpenID 发送消息
+    for openid in FAN_OPENID_LIST:
+        try:
+            # 个人号可用的客服消息接口
+            send_url = f"https://api.weixin.qq.com/cgi-bin/message/custom/send?access_token={access_token}"
+            send_data = {
+                "touser": openid,
+                "msgtype": "text",
+                "text": {
+                    "content": final_content
+                }
             }
-        }
 
-        response = requests.post(send_url, json=send_data, timeout=30)
-        response.raise_for_status()
-        send_result = response.json()
+            response = requests.post(send_url, json=send_data, timeout=30)
+            response.raise_for_status()
+            send_result = response.json()
 
-        if send_result.get("errcode") == 0:
-            print("✅ 纯文字 News 已成功推送到公众号粉丝！")
-        else:
-            print(f"❌ 推送失败：{send_result}")
-    except Exception as e:
-        print(f"❌ 推送异常：{str(e)}")
+            if send_result.get("errcode") == 0:
+                print(f"✅ 已成功推送给 OpenID：{openid}")
+            else:
+                print(f"❌ 推送给 OpenID {openid} 失败：{send_result}")
+        except Exception as e:
+            print(f"❌ 推送给 OpenID {openid} 异常：{str(e)}")
 
 # 主程序入口（执行流程）
 if __name__ == "__main__":
@@ -87,5 +92,5 @@ if __name__ == "__main__":
         print("❌ 无有效 Access Token，终止推送")
         exit(1)
     
-    # 步骤3：发送纯文字消息（个人号核心）
+    # 步骤3：批量发送纯文字消息（多粉丝核心）
     send_text_news_to_wechat(access_token, news_list)
