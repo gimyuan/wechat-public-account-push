@@ -1,0 +1,43 @@
+# 任务名称（可自定义）
+name: 自动群发每日 News 到公众号
+
+# 触发条件：1. 定时触发 2. 手动触发（方便测试）
+on:
+  # 定时触发（使用 UTC 时间，北京时间=UTC+8，以下配置为每天北京时间 8:00 运行）
+  schedule:
+    - cron: '0 1 * * *'  # UTC 0:00 = 北京时间 8:00（如需修改，参考 cron 表达式）
+  # 手动触发（在 GitHub 仓库 → Actions → 选择该任务 → Run workflow 即可手动运行）
+  workflow_dispatch:
+
+# 任务执行内容
+jobs:
+  send_news_job:
+    # 运行环境（选择 Ubuntu 最新版，稳定）
+    runs-on: ubuntu-latest
+
+    # 执行步骤
+    steps:
+      # 步骤1：拉取当前仓库代码到运行环境
+      - name: 拉取仓库代码
+        uses: actions/checkout@v4
+
+      # 步骤2：配置 Python 环境（匹配脚本运行需求）
+      - name: 配置 Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      # 步骤3：安装脚本依赖（requests 库）
+      - name: 安装依赖包
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      # 步骤4：运行 Python 脚本，发送 News
+      - name: 执行群发脚本
+        env:
+          # 从 GitHub Secrets 读取参数，传递给 Python 脚本
+          WECHAT_APP_ID: ${{ secrets.WECHAT_APP_ID }}
+          WECHAT_APP_SECRET: ${{ secrets.WECHAT_APP_SECRET }}
+          WECHAT_THUMB_MEDIA_ID: ${{ secrets.WECHAT_THUMB_MEDIA_ID }}
+        run: python send_news.py
